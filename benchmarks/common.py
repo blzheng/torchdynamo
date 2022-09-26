@@ -1200,7 +1200,7 @@ class BenchmarkRunner:
         self, name, model, example_inputs, optimize_ctx, experiment
     ):
         def warmup(fn, model, example_inputs, mode, niters=5):
-            peak_mem = 0
+            peak_mem = 1
             try:
                 if current_device == "cuda":
                     torch.cuda.reset_peak_memory_stats()

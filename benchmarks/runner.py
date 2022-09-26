@@ -268,7 +268,7 @@ def generate_dropdown_comment(title, body):
     return str_io.getvalue()
 
 
-def build_summary():
+def build_summary(devices):
     import git
 
     out_io = io.StringIO()
@@ -303,18 +303,20 @@ def build_summary():
 
     out_io.write("\n")
     out_io.write("## Environment variables ##\n")
-    env_var("TORCH_CUDA_ARCH_LIST")
-    env_var("CUDA_HOME")
+    if devices == "cuda":
+        env_var("TORCH_CUDA_ARCH_LIST")
+        env_var("CUDA_HOME")
     env_var("USE_LLVM")
 
     out_io.write("\n")
-    out_io.write("## GPU details ##\n")
-    out_io.write(f"CUDNN VERSION: {torch.backends.cudnn.version()}\n")
-    out_io.write(f"Number CUDA Devices: {torch.cuda.device_count()}\n")
-    out_io.write(f"Device Name: {torch.cuda.get_device_name(0)}\n")
-    out_io.write(
-        f"Device Memory [GB]: {torch.cuda.get_device_properties(0).total_memory/1e9}\n"
-    )
+    if devices == "cuda":
+        out_io.write("## GPU details ##\n")
+        out_io.write(f"CUDNN VERSION: {torch.backends.cudnn.version()}\n")
+        out_io.write(f"Number CUDA Devices: {torch.cuda.device_count()}\n")
+        out_io.write(f"Device Name: {torch.cuda.get_device_name(0)}\n")
+        out_io.write(
+            f"Device Memory [GB]: {torch.cuda.get_device_properties(0).total_memory/1e9}\n"
+        )
 
     title = "## Build Summary"
     comment = generate_dropdown_comment(title, out_io.getvalue())
@@ -626,7 +628,7 @@ class ParsePerformanceLogs(Parser):
 
 def parse_logs(args, dtypes, suites, devices, compilers, output_dir):
     mode = get_mode(args)
-    build_summary()
+    build_summary(devices)
 
     parser_class = ParsePerformanceLogs
     parser = parser_class(suites, devices, dtypes, compilers, mode, output_dir)
