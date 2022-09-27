@@ -543,6 +543,8 @@ def speedup_experiment(args, model_iter_fn, model, example_inputs, **kwargs):
         p.export_chrome_trace(name)
     pvalue = ttest_ind(timings[:, 0], timings[:, 1]).pvalue
     median = np.median(timings, axis=0)
+    print("median[0] is:", median[0])
+    print("median[1] is:", median[1])
     speedup = median[0] / median[1]
     if args.dump_raw_metrics:
         np.save(
@@ -1200,7 +1202,7 @@ class BenchmarkRunner:
         self, name, model, example_inputs, optimize_ctx, experiment
     ):
         def warmup(fn, model, example_inputs, mode, niters=5):
-            peak_mem = 1
+            peak_mem = 0
             try:
                 if current_device == "cuda":
                     torch.cuda.reset_peak_memory_stats()
@@ -1233,7 +1235,12 @@ class BenchmarkRunner:
             )
 
             compilation_time = dynamo_latency - eager_latency
-            compression_ratio = eager_peak_mem / dynamo_peak_mem
+            print("dynamo_latency:", dynamo_latency)
+            print("eager_latency:", eager_latency)
+            if dynamo_peak_mem != 0:
+                compression_ratio = eager_peak_mem / dynamo_peak_mem
+            else:
+                compression_ratio = float("nan")
             # print(
             #     f"memory: eager: {eager_peak_mem:.2f} GB, "
             #     f"dynamo: {dynamo_peak_mem:.2f} GB, "

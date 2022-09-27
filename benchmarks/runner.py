@@ -229,10 +229,18 @@ def generate_commands(args, dtypes, suites, devices, compilers, output_dir):
         lines.append(f"rm -rf {output_dir}")
         lines.append(f"mkdir {output_dir}")
         lines.append("")
+        if "cpu" in devices:
+            lines.append("CORES=`lscpu | grep Core | awk '{print $4}'`")
+            lines.append("start_core=0")
+            lines.append("end_core=`expr $CORES - 1`")
 
         for testing in ["performance", "accuracy"]:
             for iter in itertools.product(suites, devices, dtypes):
                 suite, device, dtype = iter
+                numactl = ""
+                if device == "cpu":
+                    numactl = "numactl -C $start_core-$end_core --membind=0 "
+
                 lines.append(
                     f"# Commands for {suite} for device={device}, dtype={dtype} for {mode} and for {testing} testing"
                 )
@@ -240,7 +248,7 @@ def generate_commands(args, dtypes, suites, devices, compilers, output_dir):
                 for compiler in compilers:
                     base_cmd = info[compiler]
                     output_filename = f"{output_dir}/{compiler}_{suite}_{dtype}_{mode}_{device}_{testing}.csv"
-                    cmd = f"python benchmarks/{suite}.py --{testing} --{dtype} -d{device} --output={output_filename}"
+                    cmd = f"{numactl}python benchmarks/{suite}.py --{testing} --{dtype} -d{device} --output={output_filename}"
                     cmd = f"{cmd} {base_cmd} --no-skip --quiet"
 
                     skip_tests_str = get_skip_tests(suite)
