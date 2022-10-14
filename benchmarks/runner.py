@@ -121,6 +121,7 @@ def parse_args():
     parser.add_argument("--devices", action="append", help="cpu or cuda")
     parser.add_argument("--dtypes", action="append", help="float16/float32/amp")
     parser.add_argument("--suites", action="append", help="huggingface/torchbench/timm")
+    parser.add_argument("--batch_size", type=int, default=None, help="batch size for benchmarking")
     parser.add_argument(
         "--compilers",
         action="append",
@@ -252,6 +253,9 @@ def generate_commands(args, dtypes, suites, devices, compilers, output_dir):
                     if args.quick:
                         filters = DEFAULTS["quick"][suite]
                         cmd = f"{cmd} {filters}"
+
+                    if args.batch_size is not None:
+                        cmd = f"{cmd} --batch_size {args.batch_size}"
                     lines.append(cmd)
                 lines.append("")
         runfile.writelines([line + "\n" for line in lines])
