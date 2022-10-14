@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import warnings
+import psutil
 
 import numpy as np
 import pandas as pd
@@ -1175,6 +1176,10 @@ class BenchmarkRunner:
                 latency = t1 - t0
                 if current_device == "cuda":
                     peak_mem = get_peak_memory()
+                elif current_device == "cpu":
+                    total = psutil.virtual_memory().total
+                    percentage = psutil.Process(os.getpid()).memory_percent()
+                    peak_mem = percentage * total / 10**9
             except Exception as e:
                 log.exception(f"Failed for {mode} {e}")
                 return sys.exit(-1)
