@@ -1,3 +1,22 @@
+# NOTICE: TorchDynamo has moved
+
+We have moved TorchDynamo to 
+[pytorch/pytorch](https://github.com/pytorch/pytorch/tree/master/torch/_dynamo)
+- `import torchdynamo` is now `import torch._dynamo`
+- `import torchinductor` is now `import torch._inductor`
+
+For instructions to port PRs over, or more details on the move see 
+[issue 1588](https://github.com/pytorch/torchdynamo/issues/1588).
+
+This repository still contains:
+- A snapshot of the code before the move 
+  - This version of the code will not be updated.
+  - We will replace this with an alias to the new location at a future date.
+- Issues: we will continue using this project for issue tracking
+- Documentation that needs to be ported over/updated
+- Some CI scripts that need to be ported over/updated
+
+
 # TorchDynamo
 
 TorchDynamo is a Python-level JIT compiler designed to make unmodified
@@ -51,7 +70,7 @@ that you have installed locally matches the PyTorch version you are running. For
 the command below, you will need CUDA 11.7.
 
 ```shell
-pip install --pre torch==1.14.0.dev20221013+cu117 --extra-index-url https://download.pytorch.org/whl/nightly/cu117
+pip install --pre torch==1.14.0.dev20221014+cu117 --extra-index-url https://download.pytorch.org/whl/nightly/cu117
 pip install -U "git+https://github.com/openai/triton@af76c989eb4799b015f8b288ccd8421558772e56#subdirectory=python"
 pip install -U "git+https://github.com/pytorch/torchdynamo"
 ```

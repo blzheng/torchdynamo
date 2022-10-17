@@ -132,7 +132,7 @@ class TorchVariable(VariableTracker):
         elif isinstance(self_should_be_none, torch_special_class_types):
             pass
         else:
-            assert False, f"{value} found with __self__ set"
+            raise AssertionError(f"{value} found with __self__ set")
 
     def __repr__(self):
         return f"TorchVariable({self.value})"
@@ -218,7 +218,7 @@ class TorchVariable(VariableTracker):
             elif self.value is torch.is_complex:
                 return ConstantVariable(args[0].dtype.is_complex, **options)
             else:
-                assert False
+                raise AssertionError()
         elif (
             self.value is torch.numel
             and isinstance(args[0], TensorVariable)
@@ -318,7 +318,7 @@ class TorchVariable(VariableTracker):
             self.value.__name__ == "set_state"
             and hasattr(self.value, "__self__")
             and isinstance(self.value.__self__, torch._C.Generator)
-        ):
+        ) or self.value == torch.random.set_rng_state:
             assert len(args) == 1
             assert isinstance(args[0], TensorVariable)
 
@@ -328,7 +328,10 @@ class TorchVariable(VariableTracker):
                 # The value won't matter since we are running with fake tensors anyway, so rng doesn't matter.
                 # However, it is imperative to record the call_function in the graph with the true args
                 # (Not the fake example_value) - for the sake of graph correctness.
-                example_value = self.value.__self__.get_state()
+                if self.value == torch.random.set_rng_state:
+                    example_value = torch.random.get_rng_state()
+                else:
+                    example_value = self.value.__self__.get_state()
             else:
                 example_value = args[0].proxy.node.meta["example_value"]
 

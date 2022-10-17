@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import collections
 import copy
@@ -892,6 +892,33 @@ class DummyGradScaler:
         return loss
 
 
+def maybe_fresh_cache(fn):
+    def inner(self, *args, **kwargs):
+        cache_minder = NullContext()
+        if self.args.cold_start_latency:
+            cache_entries = {}
+            cache_minder = fresh_triton_cache(cache_entries)
+
+        try:
+            with cache_minder:
+                return fn(self, *args, **kwargs)
+        finally:
+            dump_cache = False
+            if dump_cache and self.args.cold_start_latency:
+                output_csv(
+                    output_filename[:-4] + "_triton_cache.csv",
+                    ["dev", "name", "batch_size", "triton_cache"],
+                    [
+                        current_device,
+                        current_name,
+                        current_batch_size,
+                        cache_entries,
+                    ],
+                )
+
+    return inner
+
+
 class BenchmarkRunner:
     def __init__(self):
         self.model_iter_fn = None
@@ -1289,32 +1316,6 @@ class BenchmarkRunner:
             raise RuntimeError(
                 "--diff_main called on main branch, what are you diffing?"
             )
-
-    def maybe_fresh_cache(fn):
-        def inner(self, *args, **kwargs):
-            cache_minder = NullContext()
-            if self.args.cold_start_latency:
-                cache_entries = {}
-                cache_minder = fresh_triton_cache(cache_entries)
-
-            try:
-                with cache_minder:
-                    return fn(self, *args, **kwargs)
-            finally:
-                dump_cache = False
-                if dump_cache and self.args.cold_start_latency:
-                    output_csv(
-                        output_filename[:-4] + "_triton_cache.csv",
-                        ["dev", "name", "batch_size", "triton_cache"],
-                        [
-                            current_device,
-                            current_name,
-                            current_batch_size,
-                            cache_entries,
-                        ],
-                    )
-
-        return inner
 
     @maybe_fresh_cache
     def run_one_model(
@@ -1780,20 +1781,20 @@ def main(runner, original_dir=None):
         # TODO(whc) should we move this to a more general part of the script?
         torch.backends.cuda.matmul.allow_tf32 = True
     elif args.inductor or args.inductor_dynamic:
-        import torchinductor.config
+        from torchinductor import config as inductor_config
 
-        torchinductor.config.debug = args.verbose
+        inductor_config.debug = args.verbose
         if args.threads:
-            torchinductor.config.cpp.threads = args.threads
+            inductor_config.cpp.threads = args.threads
 
         if args.inductor_dynamic:
-            torchinductor.config.triton.cudagraphs = False
-            torchinductor.config.dynamic_shapes = True
+            inductor_config.triton.cudagraphs = False
+            inductor_config.dynamic_shapes = True
         else:
-            torchinductor.config.dynamic_shapes = False
+            inductor_config.dynamic_shapes = False
             if args.export_profiler_trace:
                 print("Profiling requested, setting cudagraphs to False")
-                torchinductor.config.triton.cudagraphs = False
+                inductor_config.triton.cudagraphs = False
 
         optimize_ctx = torchdynamo.optimize("inductor", nopython=args.nopython)
         experiment = speedup_experiment

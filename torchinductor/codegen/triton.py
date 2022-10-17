@@ -299,8 +299,10 @@ class IterationRangesRoot(IterationRanges):
         prefix: str,
         index: int,
         kernel: "Kernel",
-        pid_cache={},
+        pid_cache=None,
     ):
+        if pid_cache is None:
+            pid_cache = {}
         super(IterationRangesRoot, self).__init__(
             name=name,
             var_list=[],
@@ -454,7 +456,9 @@ class TritonKernel(Kernel):
     overrides = TritonOverrides
     sexpr = texpr
 
-    def __init__(self, *groups, pid_cache={}, reduction_hint=ReductionHint.DEFAULT):
+    def __init__(self, *groups, pid_cache=None, reduction_hint=ReductionHint.DEFAULT):
+        if pid_cache is None:
+            pid_cache = {}
         super(TritonKernel, self).__init__()
         self.numels = [V.graph.sizevars.simplify(s) for s in groups]
         self.range_trees = []
@@ -1172,10 +1176,6 @@ class TritonScheduling:
                     f"unexpected group: ({numel}, {rnumel}) != {node.group[1]}"
                 )
 
-        for node in node_schedule:
-            if node not in (EnableReduction, DisableReduction):
-                node.mark_run()
-
         log.log(dynamo_logging.CODE, "schedule: %s", node_schedule)
         return self.codegen_node_schedule(node_schedule, numel, rnumel)
 
@@ -1209,6 +1209,9 @@ class TritonScheduling:
             reduction_hint_val = ReductionHint.DEFAULT
         with TritonKernel(*tiled_groups, reduction_hint=reduction_hint_val) as kernel:
             stack = contextlib.ExitStack()
+            for node in node_schedule:
+                if node not in (EnableReduction, DisableReduction):
+                    node.mark_run()
             for node in node_schedule:
                 if node is DisableReduction:
                     stack.enter_context(kernel.disable_reduction())

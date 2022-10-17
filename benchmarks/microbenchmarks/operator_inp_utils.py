@@ -85,7 +85,7 @@ def serialize_sparse_tensor(e):
 
 
 def deserialize_sparse_tensor(size, dtype, layout, is_coalesced, nnz=None):
-    assert False, "NYI"
+    raise NotImplementedError()
 
 
 def deserialize_tensor(size, dtype, stride=None):
@@ -299,7 +299,12 @@ class OperatorInputsLoader:
 
     def get_all_ops(self):
         for key in self.operator_db.keys():
-            yield eval(key)
+            try:
+                op = eval(key)
+            except AttributeError as ae:
+                log.warning(f"Evaluating an op name into an OpOverload: {ae}")
+                continue
+            yield op
 
     def get_call_frequency(self, op):
         assert (

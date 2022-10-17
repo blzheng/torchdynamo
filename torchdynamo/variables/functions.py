@@ -78,10 +78,7 @@ class UserFunctionVariable(BaseUserFunctionVariable):
 
     def __init__(self, fn, is_constant=False, **kwargs):
         super(UserFunctionVariable, self).__init__(**kwargs)
-        if (
-            hasattr(fn, "_dynamo_marked_constant")
-            and getattr(fn, "_dynamo_marked_constant") is True
-        ):
+        if getattr(fn, "_dynamo_marked_constant", False):
             # This method should be treated as a constant for the purposes of compilation
             self.is_constant = True
         else:
@@ -329,7 +326,15 @@ class NestedUserFunctionVariable(BaseUserFunctionVariable):
         if self.kwdefaults:
             func.__kwdefaults__ = self.kwdefaults.as_python_constant()
         if self.annotations:
-            func.__annotations__ = self.annotations.as_python_constant()
+            annotations = self.annotations.as_python_constant()
+            if isinstance(annotations, tuple):
+                from itertools import pairwise
+
+                annotations = dict(pairwise(annotations))
+
+            # TypeError: __annotations__ must be set to a dict object
+            assert isinstance(annotations, dict)
+            func.__annotations__ = annotations
         return func
 
     def has_closure(self):

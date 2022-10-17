@@ -1,4 +1,3 @@
-#!/usr/bin/env pytest
 # Owner(s): ["module: cuda graphs"]
 
 import functools
@@ -6,8 +5,10 @@ import unittest
 from unittest.mock import patch
 
 import torch
+from torch.testing._internal.common_utils import TEST_WITH_ROCM
 
 import torchdynamo
+import torchdynamo.test_case
 import torchdynamo.testing
 from torchdynamo.testing import same
 
@@ -44,6 +45,7 @@ def assert_aot_autograd_counter(ok=True):
 
 def patch_all(ok=True):
     return composed(
+        unittest.skipIf(TEST_WITH_ROCM, "ROCm not supported"),
         patch("torchdynamo.config.verify_correctness", True),
         assert_aot_autograd_counter(ok),
     )
@@ -53,7 +55,7 @@ N_ITERS = 5
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "these tests require cuda")
-class TestAotCudagraphs(torchdynamo.testing.TestCase):
+class TestAotCudagraphs(torchdynamo.test_case.TestCase):
     @patch_all()
     def test_basic(self):
         def model(x, y):
@@ -202,4 +204,6 @@ class TestAotCudagraphs(torchdynamo.testing.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    from torchdynamo.test_case import run_tests
+
+    run_tests()

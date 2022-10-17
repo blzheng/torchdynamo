@@ -1,4 +1,4 @@
-#!/usr/bin/env pytest
+# Owner(s): ["module: dynamo"]
 import collections
 import copy
 import dataclasses
@@ -18,8 +18,10 @@ import torch
 import torch.onnx.operators
 from torch.testing._internal.jit_utils import JitTestCase
 
+import torchdynamo.test_case
 import torchdynamo.testing
 from torchdynamo import bytecode_transformation
+from torchdynamo import graph_break
 from torchdynamo.testing import CompileCounter
 from torchdynamo.testing import requires_static_shapes
 from torchdynamo.testing import same
@@ -32,7 +34,7 @@ def my_custom_function(x):
     return x + 1
 
 
-class MiscTests(torchdynamo.testing.TestCase):
+class MiscTests(torchdynamo.test_case.TestCase):
     def test_boolarg(self):
         def boolarg(aa, bb, flag):
             if flag:
@@ -748,7 +750,7 @@ class MiscTests(torchdynamo.testing.TestCase):
             return type(seq)([a + 1, b + 2, a + b])
 
         args1 = [torch.randn(10), torch.randn(10)]
-        args2 = tuple([torch.randn(10), torch.randn(10)])
+        args2 = (torch.randn(10), torch.randn(10))
         correct1 = fn(args1)
         correct2 = fn(args2)
         cnts = torchdynamo.testing.CompileCounter()
@@ -761,7 +763,7 @@ class MiscTests(torchdynamo.testing.TestCase):
         self.assertEqual(cnts.op_count, 6)
 
     def test_setattr_mutation1(self):
-        class MyObj:
+        class MyObj:  # noqa: B903
             def __init__(self, a, b):
                 self.a = a
                 self.b = b
@@ -1167,6 +1169,25 @@ class MiscTests(torchdynamo.testing.TestCase):
         except torchdynamo.exc.Unsupported as e:
             self.assertIn("call torchdynamo.disable() wrapped function", str(e))
 
+    def test_graph_break(self):
+        cnts = torchdynamo.testing.CompileCounter()
+
+        @torchdynamo.optimize(cnts)
+        def fn(x):
+            x = torch.cos(x)
+            x = torch.cos(x)
+            torchdynamo.graph_break()
+            x = torch.cos(x)
+            x = torch.cos(x)
+            graph_break()
+            x = torch.cos(x)
+            x = torch.cos(x)
+            return x
+
+        fn(torch.randn(4, 5))
+        self.assertEqual(cnts.frame_count, 3)
+        self.assertEqual(cnts.op_count, 6)
+
     def test_torch_size(self):
         cnts = torchdynamo.testing.CompileCounter()
 
@@ -1392,21 +1413,21 @@ class MiscTests(torchdynamo.testing.TestCase):
 
     def test_builtin_subclasses_as_method_on_class_type(self):
         class Foo:
-            def __init__(name):
+            def __init__(self, name):
                 self.ame_ = name
 
             def get_name(self):
                 return "Foo " + self.name_
 
         class Bar(Foo):
-            def __init__(name):
+            def __init__(self, name):
                 self.name_ = name
 
             def get_name(self):
                 return "Bar " + self.name_
 
         class Baz(Foo):
-            def __init__(name):
+            def __init__(self, name):  # noqa: B903
                 self.name_ = name
 
             def get_name(self):
@@ -1427,21 +1448,21 @@ class MiscTests(torchdynamo.testing.TestCase):
 
     def test_builtin_subclasses_as_method_on_var(self):
         class Foo:
-            def __init__(name):
+            def __init__(self, name):
                 self.name_ = name
 
             def get_name(self):
                 return "Foo " + self.name_
 
         class Bar(Foo):
-            def __init__(name):
+            def __init__(self, name):
                 self.name_ = name
 
             def get_name(self):
                 return "Bar " + self.name_
 
         class Baz(Bar):
-            def __init__(name):
+            def __init__(self, name):
                 self.name_ = name
 
             def get_name(self):
@@ -1735,7 +1756,7 @@ class MiscTests(torchdynamo.testing.TestCase):
     def test_update_locals_and_stack_uses_shared_cache(self):
         def fn(x):
             perm = [0, 3, 5]
-            perm = [i for i in range(min(perm))] + perm
+            perm = list(range(min(perm))) + perm
             perm.extend(i for i in range(x.dim()) if i not in perm)
             return perm
 
@@ -2571,7 +2592,7 @@ class MiscTests(torchdynamo.testing.TestCase):
         # Test sth like torch.LongTensor(list(np.int64, np.int64, ...))
         def fn():
             x = np.array([1, 2, 3, 4, 5, 6], dtype=np.int64)
-            y = list((x[0], x[2], x[4]))
+            y = [x[0], x[2], x[4]]
             z = torch.LongTensor(y)
             return z
 
@@ -2710,3 +2731,9 @@ class TestTracer(JitTestCase):
         fn()
         opt_fn = torchdynamo.optimize("eager")(fn)
         opt_fn()
+
+
+if __name__ == "__main__":
+    from torchdynamo.test_case import run_tests
+
+    run_tests()

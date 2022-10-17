@@ -1,8 +1,9 @@
-#!/usr/bin/env pytest
+# Owner(s): ["module: inductor"]
 import contextlib
 import dataclasses
 import functools
 import importlib
+import os
 import random
 import sys
 import unittest
@@ -12,6 +13,8 @@ from unittest.mock import patch
 import torch
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.nn import functional as F
+from torch.testing._internal.common_utils import TEST_WITH_ASAN
+from torch.testing._internal.common_utils import TEST_WITH_ROCM
 from torch.testing._internal.common_utils import TestCase as TorchTestCase
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._pytree import tree_flatten
@@ -21,12 +24,12 @@ import torchdynamo
 from torchdynamo.debug_utils import same_two_models
 from torchdynamo.testing import rand_strided
 from torchdynamo.testing import same
-from torchinductor.utils import timed
 
 try:
     import sympy
 
     importlib.import_module("functorch")
+    importlib.import_module("filelock")
 
     from functorch.compile import config as functorch_config
     from torch._decomp import get_decompositions
@@ -38,14 +41,18 @@ try:
     from torchinductor.ir import ModularIndexing
     from torchinductor.sizevars import SizeVarAllocator
     from torchinductor.utils import has_torchvision_roi_align
+    from torchinductor.utils import has_triton
+    from torchinductor.utils import timed
 
     # This will only pass on pytorch builds newer than roughly 5/15/2022
     assert get_decompositions([torch.ops.aten.trace])
     # Requires functorch
     from torchinductor.compile_fx import compile_fx_inner
-except (ImportError, ModuleNotFoundError, AssertionError) as e:
+except (ImportError, AssertionError) as e:
     sys.stderr.write(f"{type(e)}: {e}\n")
-    raise unittest.SkipTest("requires sympy/functorch")
+    if __name__ == "__main__":
+        sys.exit(0)
+    raise unittest.SkipTest("requires sympy/functorch/filelock")
 
 
 HAS_CPU = False
@@ -56,19 +63,17 @@ try:
 
     CppCodeCache.load("")
     HAS_CPU = True
-except (CalledProcessError, OSError, torchinductor.exc.InvalidCxxCompiler):
+except (
+    CalledProcessError,
+    OSError,
+    torchinductor.exc.InvalidCxxCompiler,
+    torchinductor.exc.CppCompileError,
+):
     pass
 
 aten = torch.ops.aten
 
-HAS_CUDA = False
-if torch.cuda.is_available():
-    try:
-        importlib.import_module("triton")
-        HAS_CUDA = True
-    except (ImportError, ModuleNotFoundError):
-        pass
-
+HAS_CUDA = has_triton()
 requires_cuda = functools.partial(unittest.skipIf, not HAS_CUDA, "requires cuda")
 
 torchinductor.config.triton.autotune = False  # too slow
@@ -92,6 +97,7 @@ def requires_decomp(fn):
 class TestCase(TorchTestCase):
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         cls._stack = contextlib.ExitStack()
         cls._stack.enter_context(patch.object(config, "debug", True))
         cls._stack.enter_context(patch.object(config.cpp, "min_chunk_size", 1))
@@ -99,6 +105,7 @@ class TestCase(TorchTestCase):
     @classmethod
     def tearDownClass(cls):
         cls._stack.close()
+        super().tearDownClass()
 
 
 class ToTuple(torch.nn.Module):
@@ -169,7 +176,7 @@ def check_model(
     self: TestCase,
     model,
     example_inputs,
-    kwargs={},
+    kwargs=None,
     *,
     atol=None,
     rtol=None,
@@ -181,6 +188,7 @@ def check_model(
     assert_equal=True,
     check_gradient=False,
 ):
+    kwargs = kwargs or {}
     torchdynamo.reset()
 
     ref_inputs = example_inputs
@@ -298,7 +306,7 @@ def check_model_cuda(
     self: TestCase,
     model,
     example_inputs,
-    kwargs={},
+    kwargs=None,
     *,
     atol=None,
     rtol=None,
@@ -310,6 +318,7 @@ def check_model_cuda(
     assert_equal=True,
     check_gradient=False,
 ):
+    kwargs = kwargs or {}
     if hasattr(model, "to"):
         model = model.to("cuda")
 
@@ -412,7 +421,7 @@ class SweepInputsCpuTest(SweepInputs2, TestCase):
 SweepInputsCpuTest.populate()
 
 
-class TestIndexingSimplification(unittest.TestCase):
+class TestIndexingSimplification(TorchTestCase):
     def test_indexing_simplification(self):
         sizevars = SizeVarAllocator()
         i0 = sympy.Symbol("i0")
@@ -547,7 +556,7 @@ class TestIndexingSimplification(unittest.TestCase):
 
 class CommonTemplate:
     @classmethod
-    def install(my_cls, other_cls, suffix):
+    def install(my_cls, other_cls, suffix):  # noqa: B902
         for name, value in my_cls.__dict__.items():
             if name.startswith("test_"):
                 setattr(other_cls, f"{name}_{suffix}", value)
@@ -1940,6 +1949,26 @@ class CommonTemplate:
             ),
         )
 
+    def test_masked_fill_promotion(self):
+        def fn(mask, value):
+            return aten.masked_fill(value, mask, torch.tensor(3.5))
+
+        opt_fn = torchdynamo.optimize("inductor")(fn)
+        for inp in (
+            torch.randn(
+                [16, 16],
+                dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                device=self.device,
+            ),
+            torch.randint(16, (16, 16), device=self.device),
+        ):
+
+            inputs = (
+                torch.randint(0, 1, [1, 16], dtype=torch.bool, device=self.device),
+                inp,
+            )
+            self.assertEqual(fn(*inputs), opt_fn(*inputs))
+
     def test_fill1(self):
         def fn(x):
             tmp = torch.ones_like(x)
@@ -2004,6 +2033,19 @@ class CommonTemplate:
         self.common(
             fn,
             (torch.randn([8, 16]),),
+        )
+
+    def test_cat_upcasting(self):
+        def fn(arg4_1, slice_7):
+            cat_1 = aten.cat.default([arg4_1, slice_7], 1)
+            return (cat_1,)
+
+        self.common(
+            fn,
+            (
+                torch.randn([8, 16], dtype=torch.float32),
+                torch.randn([8, 20], dtype=torch.float16),
+            ),
         )
 
     def test_cat_extern_kernel(self):
@@ -3626,6 +3668,11 @@ class CommonTemplate:
         inps = [torch.randn(shape, dtype=dtype) for (shape, dtype) in inps]
         self.common(forward, inps, atol=1e-05, rtol=2e-05)
 
+    @unittest.skipIf(
+        TEST_WITH_ASAN
+        or os.environ.get("BUILD_ENVIRONMENT", "").startswith("parallelnative"),
+        "TODO: debug this with asan",
+    )
     def test_tmp_not_defined_issue2(self):
         def forward(arg38_1, arg81_1, getitem_17, new_zeros_default_4):
             div_tensor_7 = torch.ops.aten.div.Tensor(getitem_17, arg81_1)
@@ -3773,7 +3820,7 @@ class CommonTemplate:
                 matmul_seen = False
 
                 class TestRefMode(TorchDispatchMode):
-                    def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
+                    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
                         kwargs = kwargs if kwargs else {}
 
                         nonlocal inps
@@ -4005,3 +4052,10 @@ if HAS_CUDA:
             ]
             with torch.cuda.amp.autocast(enabled=False):
                 assert same_two_models(mod, opt_mod, args), "Dynamo failed"
+
+
+if __name__ == "__main__":
+    from torchdynamo.test_case import run_tests
+
+    if (HAS_CPU or HAS_CUDA) and not TEST_WITH_ROCM:
+        run_tests(needs="filelock")

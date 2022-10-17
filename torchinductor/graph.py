@@ -87,6 +87,7 @@ class GraphLowering(torch.fx.Interpreter):
         self.buffers = []
         self.constants = {}
         self.removed_buffers = set()
+        self.inplaced_to_remove = set()
         self.wrapper_code = None
         self.num_dynamic_inputs = num_dynamic_inputs
         self.num_static_inputs = None
@@ -273,10 +274,10 @@ class GraphLowering(torch.fx.Interpreter):
         return self.add_tensor_constant(value)
 
     def call_module(self, target, args, kwargs):
-        assert False
+        raise AssertionError()
 
     def call_method(self, target, args, kwargs):
-        assert False
+        raise AssertionError()
 
     def output(self, target, args, kwargs):
         result = super().output(target, args, kwargs)
