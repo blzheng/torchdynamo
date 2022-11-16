@@ -78,6 +78,12 @@ normalize_ir = False
 # __torch_function__ logic of the subclass.
 traceable_tensor_subclasses = set()
 
+# Suppress errors in torch._dynamo.optimize, instead forcing a fallback to eager.
+# This is a good way to get your model to work one way or another, but you may
+# lose optimization opportunities this way.  Devs, if your benchmark model is failing
+# this way, you should figure out why instead of suppressing it.
+suppress_errors = bool(os.environ.get("TORCHDYNAMO_SUPPRESS_ERRORS", False))
+
 # Raise torchdynamo internal assertions
 raise_on_assertion_error = False
 

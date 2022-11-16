@@ -5,7 +5,10 @@ import time
 from typing import Any
 from typing import Dict
 from typing import List
-
+import contextlib
+import tempfile
+from unittest import mock
+import os
 import numpy as np
 import sympy
 import torch
@@ -227,3 +230,30 @@ def has_incompatible_cudagraph_ops(gm):
 instance_descriptor = collections.namedtuple(
     "instance_descriptor", ["divisible_by_16", "equal_to_1"]
 )
+
+@contextlib.contextmanager
+def fresh_inductor_cache(cache_entries=None):
+    """
+    Contextmanager that provides a clean tmp cachedir for inductor.
+    Optionally, pass a dict as 'cache_entries' to get a list of filenames and sizes
+    generated with this cache instance.
+    """
+    with tempfile.TemporaryDirectory() as inductor_cache_dir:
+        with mock.patch.dict(
+            os.environ, {"TORCHINDUCTOR_CACHE_DIR": inductor_cache_dir}
+        ):
+            triton_cache_dir = os.path.join(inductor_cache_dir, "triton")
+            with mock.patch.dict(os.environ, {"TRITON_CACHE_DIR": triton_cache_dir}):
+                yield
+                if isinstance(cache_entries, dict):
+                    assert len(cache_entries) == 0, "expected empty cache_entries dict"
+                    if os.path.exists(triton_cache_dir):
+                        files = os.listdir(triton_cache_dir)
+                        cache_entries.update(
+                            {
+                                f: os.path.getsize(os.path.join(triton_cache_dir, f))
+                                for f in files
+                                if ".lock" not in f
+                            }
+                        )
+
